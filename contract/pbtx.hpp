@@ -26,16 +26,17 @@ CONTRACT pbtx : public eosio::contract {
 
   ACTION regnetwork(uint64_t network_id, name admin_acc, vector<name> listeners, uint32_t flags);
 
-  ACTION unregnetwrok(uint64_t network_id);
+  ACTION unregnetwork(uint64_t network_id);
 
   ACTION regactor(uint64_t network_id, vector<uint8_t> permission);
 
   ACTION unregactor(uint64_t network_id, uint64_t actor);
 
   // execute the transaction
-  ACTION exectrx(vector<uint8_t> trx_input);
+  ACTION exectrx(name worker, vector<uint8_t> trx_input);
 
   struct pbtxtransact_abi {
+    name               worker;
     uint64_t           actor;
     uint32_t           seqnum;
     vector<uint64_t>   cosignors;
