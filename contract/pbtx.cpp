@@ -75,32 +75,32 @@ ACTION pbtx::regactor(uint64_t network_id, vector<uint8_t> permission)
   check(nwitr != _networks.end(), "Unknown network");
   require_auth(nwitr->admin_acc);
 
-  pbtx_Permission perm;
+  pbtx_Permission* perm = (pbtx_Permission*) malloc(sizeof(pbtx_Permission));
   pb_istream_t perm_stream = pb_istream_from_buffer(permission.data(), permission.size());
-  check(pb_decode(&perm_stream, pbtx_Permission_fields, &perm), perm_stream.errmsg);
+  check(pb_decode(&perm_stream, pbtx_Permission_fields, perm), perm_stream.errmsg);
 
-  check(perm.threshold > 0, "Threshold cannot be zero");
+  check(perm->threshold > 0, "Threshold cannot be zero");
   uint64_t weights_sum = 0;
-  for( uint32_t i = 0; i < perm.keys_count; i++ ) {
-    check(perm.keys[i].weight > 0, "Key weight cannot be zero in key #" + to_string(i));
-    check(perm.keys[i].key.type == pbtx_KeyType_EOSIO_KEY, "Unknown key type: " + to_string(perm.keys[i].key.type) +
+  for( uint32_t i = 0; i < perm->keys_count; i++ ) {
+    check(perm->keys[i].weight > 0, "Key weight cannot be zero in key #" + to_string(i));
+    check(perm->keys[i].key.type == pbtx_KeyType_EOSIO_KEY, "Unknown key type: " + to_string(perm->keys[i].key.type) +
           " in key #" + to_string(i));
-    check(perm.keys[i].key.key_bytes.size >= 34, "Key #" + to_string(i) + " is too short");
-    weights_sum += perm.keys[i].weight;
+    check(perm->keys[i].key.key_bytes.size >= 34, "Key #" + to_string(i) + " is too short");
+    weights_sum += perm->keys[i].weight;
   }
-  check(weights_sum >= perm.threshold, "Threshold cannot be higher than sum of weights");
+  check(weights_sum >= perm->threshold, "Threshold cannot be higher than sum of weights");
 
   actorperm _actorperm(_self, network_id);
-  auto actpermitr = _actorperm.find(perm.actor);
+  auto actpermitr = _actorperm.find(perm->actor);
   if( actpermitr == _actorperm.end() ) {
     _actorperm.emplace(nwitr->admin_acc, [&]( auto& row ) {
-        row.actor = perm.actor;
+        row.actor = perm->actor;
         row.permission = permission;
       });
 
     actorseq _actorseq(_self, network_id);
     _actorseq.emplace(nwitr->admin_acc, [&]( auto& row ) {
-        row.actor = perm.actor;
+        row.actor = perm->actor;
         row.seqnum = 0;
       });
   }
@@ -143,15 +143,18 @@ ACTION pbtx::unregactor(uint64_t network_id, uint64_t actor)
 
 void validate_signature(const checksum256& digest, const vector<uint8_t>& pbperm, const pbtx_Signature& sig)
 {
-  pbtx_Permission perm;
+  pbtx_Permission* perm = (pbtx_Permission*) malloc(sizeof(pbtx_Permission));
   pb_istream_t perm_stream = pb_istream_from_buffer(pbperm.data(), pbperm.size());
-  check(pb_decode(&perm_stream, pbtx_Permission_fields, &perm), perm_stream.errmsg);
+  check(pb_decode(&perm_stream, pbtx_Permission_fields, perm), perm_stream.errmsg);
 
   uint32_t sum_weights = 0;
 
   for( uint32_t i=0; i < sig.sig_bytes_count; i++ ) {
     public_key recovered_key;
     {
+      if( sig.sig_bytes[i].size < 65 ) {
+        check(false, "Signature too short. Expected 65 bytes or more, got " + to_string(sig.sig_bytes[i].size));
+      }
       datastream ds(sig.sig_bytes[i].bytes, sig.sig_bytes[i].size);
       signature eosiosig;
       ds >> eosiosig;
@@ -159,25 +162,27 @@ void validate_signature(const checksum256& digest, const vector<uint8_t>& pbperm
     }
 
     bool matched = false;
-    for( uint32_t j=0; j<perm.keys_count; j++ ) {
-      datastream ds(perm.keys[j].key.key_bytes.bytes, perm.keys[j].key.key_bytes.size);
+    for( uint32_t j=0; j<perm->keys_count; j++ ) {
+      datastream ds(perm->keys[j].key.key_bytes.bytes, perm->keys[j].key.key_bytes.size);
       public_key perm_key;
       ds >> perm_key;
       if( recovered_key == perm_key ) {
-        sum_weights += perm.keys[j].weight;
+        sum_weights += perm->keys[j].weight;
         matched = true;
         break;
       }
     }
 
     if( !matched ) {
-      check(false, "Signature #" + to_string(i) + " does not match any keys of actor #" + to_string(perm.actor));
+      check(false, "Signature #" + to_string(i) + " does not match any keys of actor #" + to_string(perm->actor));
     }
   }
 
-  if( sum_weights < perm.threshold ) {
-    check(false, "Insufficient signatures weight for actor #" + to_string(perm.actor));
+  if( sum_weights < perm->threshold ) {
+    check(false, "Insufficient signatures weight for actor #" + to_string(perm->actor));
   }
+
+  free(perm);
 }
 
 
@@ -186,35 +191,34 @@ ACTION pbtx::exectrx(name worker, vector<uint8_t> trx_input)
 {
   require_auth(worker);
 
-  pbtx_Transaction trx;
+  pbtx_Transaction* trx = (pbtx_Transaction*) malloc(sizeof(pbtx_Transaction));
   pb_istream_t trx_stream = pb_istream_from_buffer(trx_input.data(), trx_input.size());
-  check(pb_decode(&trx_stream, pbtx_Transaction_fields, &trx), trx_stream.errmsg);
-  check(trx.body.size > 0, "Empty transaction body");
+  check(pb_decode(&trx_stream, pbtx_Transaction_fields, trx), trx_stream.errmsg);
+  check(trx->body.size > 0, "Empty transaction body");
 
-  pbtx_TransactionBody body;
-  pb_istream_t body_stream = pb_istream_from_buffer(trx.body.bytes, trx.body.size);
-  check(pb_decode(&body_stream, pbtx_TransactionBody_fields, &trx), body_stream.errmsg);
-  check(body.transaction_content.size > 0, "Empty transaction content");
-  
+  pbtx_TransactionBody* body = (pbtx_TransactionBody*) malloc(sizeof(pbtx_TransactionBody));
+  pb_istream_t body_stream = pb_istream_from_buffer(trx->body.bytes, trx->body.size);
+  check(pb_decode(&body_stream, pbtx_TransactionBody_fields, body), body_stream.errmsg);
+
   networks _networks(_self, 0);
-  auto nwitr = _networks.find(body.network_id);
+  auto nwitr = _networks.find(body->network_id);
   if( nwitr == _networks.end() ) {
-    check(false, "Unknown network_id: " + to_string(body.network_id));
+    check(false, "Unknown network_id: " + to_string(body->network_id));
   }
 
-  actorperm _actorperm(_self, body.network_id);
-  auto actpermitr = _actorperm.find(body.actor);
+  actorperm _actorperm(_self, body->network_id);
+  auto actpermitr = _actorperm.find(body->actor);
   if( actpermitr == _actorperm.end() ) {
-    check(false, "Unknown actor: " + to_string(body.actor));
+    check(false, "Unknown actor: " + to_string(body->actor));
   }
 
-  actorseq _actorseq(_self, body.network_id);
-  auto actseqitr = _actorseq.find(body.actor);
+  actorseq _actorseq(_self, body->network_id);
+  auto actseqitr = _actorseq.find(body->actor);
   check(actseqitr != _actorseq.end(), "Exception 2");
 
-  if( body.seqnum != actseqitr->seqnum + 1 ) {
+  if( body->seqnum != actseqitr->seqnum + 1 ) {
     check(false, "Expected seqnum=" + to_string(actseqitr->seqnum + 1) +
-          ", received seqnum=" + to_string(body.seqnum));
+          ", received seqnum=" + to_string(body->seqnum));
   }
 
   _actorseq.modify(*actseqitr, same_payer, [&]( auto& row ) {
@@ -222,20 +226,20 @@ ACTION pbtx::exectrx(name worker, vector<uint8_t> trx_input)
                                              row.last_modified = current_time_point();
                                            });
 
-  if( trx.signatures_count != body.cosignors_count + 1 ) {
-    check(false, "Expected " + to_string(body.cosignors_count + 1) + " signatures, but received " +
-          to_string(trx.signatures_count));
+  if( trx->signatures_count != body->cosignors_count + 1 ) {
+    check(false, "Expected " + to_string(body->cosignors_count + 1) + " signatures, but received " +
+          to_string(trx->signatures_count));
   }
 
-  checksum256 digest = sha256((const char*)body.transaction_content.bytes, body.transaction_content.size);
+  checksum256 digest = sha256((const char*)trx->body.bytes, trx->body.size);
 
-  validate_signature(digest, actpermitr->permission, trx.signatures[0]);
-  for( uint32_t i = 0; i < body.cosignors_count; i++ ) {
-    actpermitr = _actorperm.find(body.cosignors[i]);
+  validate_signature(digest, actpermitr->permission, trx->signatures[0]);
+  for( uint32_t i = 0; i < body->cosignors_count; i++ ) {
+    actpermitr = _actorperm.find(body->cosignors[i]);
     if( actpermitr == _actorperm.end() ) {
-      check(false, "Unknown cosignor #" + to_string(i) + ": " + to_string(body.cosignors[i]));
+      check(false, "Unknown cosignor #" + to_string(i) + ": " + to_string(body->cosignors[i]));
     }
-    validate_signature(digest, actpermitr->permission, trx.signatures[i+1]);
+    validate_signature(digest, actpermitr->permission, trx->signatures[i+1]);
   }
 
 
@@ -247,8 +251,8 @@ ACTION pbtx::exectrx(name worker, vector<uint8_t> trx_input)
   else {
     pbtxtransact_abi args =
       {
-       worker, body.actor, body.seqnum, {body.cosignors, body.cosignors + body.cosignors_count},
-       {body.transaction_content.bytes, body.transaction_content.bytes + body.transaction_content.size}
+       worker, body->actor, body->seqnum, {body->cosignors, body->cosignors + body->cosignors_count},
+       {body->transaction_content.bytes, body->transaction_content.bytes + body->transaction_content.size}
       };
 
     vector<permission_level> perms{permission_level{_self, name("active")},
