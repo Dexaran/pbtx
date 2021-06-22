@@ -1,3 +1,19 @@
+/*
+  Copyright 2021 Fix Payments Inc.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
 #include <eosio/eosio.hpp>
 #include <eosio/multi_index.hpp>
 #include <eosio/time.hpp>
@@ -40,6 +56,7 @@ CONTRACT pbtx : public eosio::contract {
     uint64_t           actor;
     uint32_t           seqnum;
     vector<uint64_t>   cosignors;
+    uint32_t           transaction_type;
     vector<uint8_t>    transaction_content;
   };
 
@@ -71,6 +88,7 @@ CONTRACT pbtx : public eosio::contract {
   struct [[eosio::table("actorseq")]] actorseq_row {
     uint64_t           actor;
     uint32_t           seqnum;     // sequence number. Only transactions with seqnum+1 are accepted
+    uint64_t           prev_hash;   // previous body hash (first 64 bits from sha256 in big-endian)
     time_point         last_modified;
     auto primary_key()const { return actor; }
   };

@@ -1,0 +1,66 @@
+#!/usr/bin/env node
+
+/*
+  Copyright 2021 Fix Payments Inc.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+'use strict';
+
+const program   = require('commander');
+
+const keyval_pb = require('./pb/keyval_pb');
+
+program
+    .command('set <key> <val>')
+    .description('Set key/value pair')
+    .action((key, value) => {
+        let cmd = new keyval_pb.Command();
+        cmd.setKey(key);
+
+        let setentry = new keyval_pb.SetEntry();
+        setentry.setVal(value);
+        cmd.setCmdset(setentry);
+
+        console.log(Buffer.from(cmd.serializeBinary()).toString('hex'));
+    });
+
+
+program
+    .command('del <key>')
+    .description('Delete key/value pair')
+    .action((key) => {
+        let cmd = new keyval_pb.Command();
+        cmd.setKey(key);
+
+        let delentry = new keyval_pb.DelEntry();
+        cmd.setCmddel(delentry);
+
+        console.log(Buffer.from(cmd.serializeBinary()).toString('hex'));
+    });
+
+program.parse(process.argv);
+
+
+
+
+
+
+
+/*
+ Local Variables:
+ mode: javascript
+ indent-tabs-mode: nil
+ End:
+*/

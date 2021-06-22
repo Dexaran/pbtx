@@ -1,3 +1,19 @@
+/*
+  Copyright 2021 Fix Payments Inc.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
 #include "pbtx.hpp"
 #include <eosio/crypto.hpp>
 #include <eosio/system.hpp>
@@ -102,6 +118,7 @@ ACTION pbtx::regactor(uint64_t network_id, vector<uint8_t> permission)
     _actorseq.emplace(nwitr->admin_acc, [&]( auto& row ) {
         row.actor = perm->actor;
         row.seqnum = 0;
+        row.prev_hash = 0;
       });
   }
   else {
@@ -221,10 +238,10 @@ ACTION pbtx::exectrx(name worker, vector<uint8_t> trx_input)
           ", received seqnum=" + to_string(body->seqnum));
   }
 
-  _actorseq.modify(*actseqitr, same_payer, [&]( auto& row ) {
-                                             row.seqnum++;
-                                             row.last_modified = current_time_point();
-                                           });
+  if( actseqitr->seqnum != 0 && body->prev_hash != actseqitr->prev_hash ) {
+    check(false, "Previous body hash mismatch. Expected " + to_string(actseqitr->prev_hash) +
+          ", received prev_hash=" + to_string(body->prev_hash));
+  }
 
   if( trx->signatures_count != body->cosignors_count + 1 ) {
     check(false, "Expected " + to_string(body->cosignors_count + 1) + " signatures, but received " +
@@ -232,6 +249,19 @@ ACTION pbtx::exectrx(name worker, vector<uint8_t> trx_input)
   }
 
   checksum256 digest = sha256((const char*)trx->body.bytes, trx->body.size);
+
+  uint64_t prev_hash = 0;
+  auto digest_array = digest.extract_as_byte_array();
+  for( uint32_t i = 0; i < 8; i++ ) {
+    prev_hash <<= 8;
+    prev_hash |= digest_array[i];
+  }
+
+  _actorseq.modify(*actseqitr, same_payer, [&]( auto& row ) {
+                                             row.seqnum++;
+                                             row.prev_hash = prev_hash;
+                                             row.last_modified = current_time_point();
+                                           });
 
   validate_signature(digest, actpermitr->permission, trx->signatures[0]);
   for( uint32_t i = 0; i < body->cosignors_count; i++ ) {
@@ -252,6 +282,7 @@ ACTION pbtx::exectrx(name worker, vector<uint8_t> trx_input)
     pbtxtransact_abi args =
       {
        worker, body->actor, body->seqnum, {body->cosignors, body->cosignors + body->cosignors_count},
+       body->transaction_type,
        {body->transaction_content.bytes, body->transaction_content.bytes + body->transaction_content.size}
       };
 
