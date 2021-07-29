@@ -10,7 +10,10 @@ set(EOSIO_VERSION_MIN "1.8")
 set(EOSIO_VERSION_SOFT_MAX "2.0")
 #set(EOSIO_VERSION_HARD_MAX "")
 
+set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../nanopb/extra)
+
 find_package(eosio)
+find_package(Nanopb REQUIRED)
 
 ### Check the version of eosio
 set(VERSION_MATCH_ERROR_MSG "")
@@ -38,8 +41,11 @@ enable_testing()
 include_directories(
 pbtx
 pbtx/suites
+${NANOPB_INCLUDE_DIRS}
 ${CMAKE_BINARY_DIR}
+${CMAKE_BINARY_DIR}/../contract
 ${CMAKE_CURRENT_SOURCE_DIR}
+${CMAKE_CURRENT_SOURCE_DIR}/../contract
 )
 
 # find all unit test suites
@@ -47,6 +53,11 @@ file(GLOB PBTX_UNIT_TESTS
 "*.cpp"
 "./pbtx/*.cpp"
 "./pbtx/suites/*.hpp"
+"./../nanopb/pb_common.c"
+"./../nanopb/pb_encode.c"
+"./../nanopb/pb_decode.c"
+${CMAKE_BINARY_DIR}/../contract/pbtx.pb.c
+${CMAKE_CURRENT_SOURCE_DIR}/../contract/pbtx_contract_constants.hpp
 )
 
 add_eosio_test_executable(pbtx_unit_test ${PBTX_UNIT_TESTS}) # build unit tests as one executable
